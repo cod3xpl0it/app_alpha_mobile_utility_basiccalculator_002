@@ -1,4 +1,3 @@
-// App.js
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -10,7 +9,7 @@ import {
   Alert,
 } from "react-native";
 
-// --- Banco de dados simulado ---
+// --- Database simulation (works on web and app) ---
 const fakeDB = {
   vars: [],
   insert(v) {
@@ -29,7 +28,7 @@ const fakeDB = {
   },
 };
 
-// --- Substituição de variáveis ---
+// --- Function that replaces (nested) variables ---
 function substitute(expr, vars) {
   let out = expr;
   let replaced = true;
@@ -48,41 +47,33 @@ function substitute(expr, vars) {
   return out;
 }
 
-// --- Avaliador seguro ---
-function evaluateExpression(txt, vars, final = false) {
+// --- Safe math evaluator ---
+function evaluateExpression(txt, vars) {
   try {
-    if (!txt || !txt.trim()) return final ? "Error" : "";
+    let expr = substitute(txt, vars);
 
-    let expr = substitute(txt, vars).replace(/\s+/g, "");
-
-    // Substituições para operadores e funções
     expr = expr
+      .replace(/\s+/g, "")
       .replace(/×/g, "*")
       .replace(/÷/g, "/")
-      .replace(/\^/g, "**")
-      .replace(/sqrt\(/g, "Math.sqrt("); // reconhece sqrt(
+      .replace(/\^/g, "**");
 
-    // Expressões incompletas não avaliam até apertar "="
-    const trailingIncomplete =
-      /[+\-*\/\^]$/.test(expr) ||
-      /Math\.sqrt\($/.test(expr) ||
-      /sqrt\($/.test(expr);
-    if (trailingIncomplete && !final) return "";
-
-    const open = (expr.match(/\(/g) || []).length;
-    const close = (expr.match(/\)/g) || []).length;
-    if (open > close && !final) return "";
+    // Substitui sqrt( e √ adequadamente
+    expr = expr
+      .replace(/√\(/g, "Math.sqrt(")
+      .replace(/√([0-9.]+)/g, "Math.sqrt($1)")
+      .replace(/sqrt\(/g, "Math.sqrt(");
 
     // eslint-disable-next-line no-eval
     const val = eval(expr);
-    if (!isFinite(val) || isNaN(val)) return final ? "Error" : "";
+    if (isNaN(val)) throw new Error("Error");
     return String(val);
-  } catch {
-    return final ? "Error" : "";
+  } catch (e) {
+    return "Error";
   }
 }
 
-// --- Gerenciador de variáveis ---
+// --- Variable Manager ---
 function VariableManager({ onChange }) {
   const [vars, setVars] = useState(fakeDB.all());
   const [name, setName] = useState("");
@@ -97,7 +88,7 @@ function VariableManager({ onChange }) {
 
   const save = () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Please enter a variable name.");
+      Alert.alert("Erro", "Digite um nome para a variável.");
       return;
     }
     const obj = { name: name.trim(), value: value.trim() || "0" };
@@ -116,31 +107,22 @@ function VariableManager({ onChange }) {
   };
 
   const del = (id) => {
-    Alert.alert("Confirmation", "Delete variable?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          fakeDB.delete(id);
-          refresh();
-        },
-      },
-    ]);
+    fakeDB.delete(id);
+    refresh();
   };
 
   return (
     <View style={styles.drawer}>
-      <Text style={styles.drawerTitle}>Variables</Text>
+      <Text style={styles.drawerTitle}>Variáveis</Text>
 
       <TextInput
-        placeholder="Name (e.g. a)"
+        placeholder="Nome (ex: a)"
         style={styles.input}
         value={name}
         onChangeText={setName}
       />
       <TextInput
-        placeholder="Formula or value (e.g. 5, b+2, sqrt(9))"
+        placeholder="Fórmula ou valor (ex: 5, b+2, sqrt(9))"
         style={styles.input}
         value={value}
         onChangeText={setValue}
@@ -148,7 +130,7 @@ function VariableManager({ onChange }) {
 
       <TouchableOpacity style={styles.primaryButton} onPress={save}>
         <Text style={styles.primaryButtonText}>
-          {editing ? "Save Changes" : "Create Variable"}
+          {editing ? "Salvar Alterações" : "Criar Variável"}
         </Text>
       </TouchableOpacity>
 
@@ -176,7 +158,7 @@ function VariableManager({ onChange }) {
   );
 }
 
-// --- Aplicativo principal ---
+// --- Main App ---
 export default function App() {
   const [vars, setVars] = useState([]);
   const [expr, setExpr] = useState("");
@@ -200,32 +182,36 @@ export default function App() {
       const newE = expr.slice(0, -1);
       setExpr(newE);
       exprRef.current = newE;
-      setResult(evaluateExpression(newE, vars, false));
+      setResult(evaluateExpression(newE, vars));
       return;
     }
 
     if (key === "=") {
-      const val = evaluateExpression(expr, vars, true);
-      if (val !== "Error" && val !== "") {
+      const val = evaluateExpression(expr, vars);
+      if (val !== "Error") {
         setExpr(val);
         setResult("");
-        exprRef.current = val;
-      } else {
-        setResult("Error");
-      }
+      } else setResult("Error");
       return;
     }
 
-    // Substitui o botão √ por "sqrt("
-    const newE = expr + (key === "√" ? "sqrt(" : key);
+    if (key === "√") {
+      const newE = expr + "sqrt(";
+      setExpr(newE);
+      exprRef.current = newE;
+      setResult(evaluateExpression(newE, vars));
+      return;
+    }
+
+    const newE = expr + key;
     setExpr(newE);
     exprRef.current = newE;
-    setResult(evaluateExpression(newE, vars, false));
+    setResult(evaluateExpression(newE, vars));
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: 40 }}>
-      {/* Cabeçalho */}
+      {/* Header */}
       <View style={styles.topRow}>
         <TouchableOpacity
           onPress={() => setDrawerOpen(!drawerOpen)}
@@ -236,13 +222,13 @@ export default function App() {
         <Text style={styles.title}>ProgCalc</Text>
       </View>
 
-      {/* Drawer de variáveis */}
+      {/* Variable Drawer */}
       {drawerOpen && (
         <View style={styles.drawerContainer}>
           <VariableManager
             onChange={(newVars) => {
               setVars(newVars);
-              setResult(evaluateExpression(exprRef.current, newVars, false));
+              setResult(evaluateExpression(exprRef.current, newVars));
             }}
           />
         </View>
@@ -256,14 +242,14 @@ export default function App() {
           onChangeText={(t) => {
             setExpr(t);
             exprRef.current = t;
-            setResult(evaluateExpression(t, vars, false));
+            setResult(evaluateExpression(t, vars));
           }}
-          placeholder="Type your formula..."
+          placeholder="Digite sua fórmula..."
         />
         <Text style={styles.resultText}>{result}</Text>
       </View>
 
-      {/* Teclado */}
+      {/* Keypad */}
       <View style={styles.keypad}>
         {[
           ["C", "(", ")", "DEL"],
@@ -290,7 +276,7 @@ export default function App() {
   );
 }
 
-// --- Estilos ---
+// --- Styles ---
 const styles = StyleSheet.create({
   topRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10 },
   menuBtn: { padding: 8, marginRight: 8 },
